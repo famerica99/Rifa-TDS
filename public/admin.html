@@ -49,7 +49,6 @@
         .receipt-link { color: var(--primary); text-decoration: none; font-weight: bold; }
         .search-box { width: 100%; padding: 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; color: white; margin-bottom: 20px; }
 
-        /* Estilos para o formulário de prêmios */
         .prize-form-container { background: #1a1a1a; padding: 20px; border-radius: 16px; border: 1px solid #333; margin-bottom: 30px; }
         .prize-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
         @media (max-width: 768px) { .prize-form-grid { grid-template-columns: 1fr; } }
@@ -97,6 +96,7 @@
                     <tr>
                         <th>Comprador</th>
                         <th>WhatsApp</th>
+                        <th>E-mail</th>
                         <th>Números</th>
                         <th>Valor</th>
                         <th>Comprovante</th>
@@ -130,6 +130,7 @@
                     <tr>
                         <th>Data</th>
                         <th>Comprador</th>
+                        <th>E-mail</th>
                         <th>Números</th>
                         <th>Valor</th>
                         <th>Status</th>
@@ -139,7 +140,6 @@
             </table>
         </div>
 
-        <!-- SEÇÃO DE PRÊMIOS -->
         <div id="section-prizes" class="content-section">
             <div class="prize-form-container">
                 <h3 style="margin-top:0">Gerenciar Prêmios</h3>
@@ -236,7 +236,15 @@
             data.forEach(order => {
                 pendingOrdersMap[order.id] = order;
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td><strong>${order.nome_comprador}</strong></td><td>${order.whats_comprador}</td><td><span style="color:var(--primary); font-weight:bold;">${order.numeros_selecionados.join(', ')}</span></td><td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td><td><a href="${order.url_comprovante}" target="_blank" class="receipt-link">📄 Ver</a></td><td><div style="display:flex; gap:5px;"><button class="btn-approve" onclick="approveOrder('${order.id}')">Aprovar</button><button class="btn-cancel" onclick="cancelOrder('${order.id}')">Cancelar</button></div></td>`;
+                tr.innerHTML = `
+                    <td><strong>${order.nome_comprador}</strong></td>
+                    <td>${order.whats_comprador}</td>
+                    <td>${order.email_comprador || 'N/A'}</td>
+                    <td><span style="color:var(--primary); font-weight:bold;">${order.numeros_selecionados.join(', ')}</span></td>
+                    <td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td>
+                    <td><a href="${order.url_comprovante}" target="_blank" class="receipt-link">📄 Ver</a></td>
+                    <td><div style="display:flex; gap:5px;"><button class="btn-approve" onclick="approveOrder('${order.id}')">Aprovar</button><button class="btn-cancel" onclick="cancelOrder('${order.id}')">Cancelar</button></div></td>
+                `;
                 body.appendChild(tr);
             });
         } else { document.getElementById('stat-pending-count').innerText = '0'; empty.style.display = 'block'; }
@@ -265,22 +273,96 @@
         body.innerHTML = '';
         data?.forEach(order => {
             const tr = document.createElement('tr');
-            const statusMap = { pendente: '<span class="badge badge-pending">PENDENTE</span>', aprovado: '<span class="badge badge-paid">APROVADO</span>', cancelado: '<span class="badge badge-cancelled">CANCELADO</span>' };
-            const statusBadge = statusMap[order.status_pagamento] || order.status_pagamento;
-            tr.innerHTML = `<td>${new Date(order.created_at).toLocaleDateString('pt-BR')}</td><td>${order.nome_comprador}</td><td>${order.numeros_selecionados.join(', ')}</td><td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td><td>${statusBadge}</td>`;
+            const statusClass = order.status_pagamento === 'aprovado' ? 'badge-paid' : (order.status_pagamento === 'cancelado' ? 'badge-cancelled' : 'badge-pending');
+            tr.innerHTML = `
+                <td>${new Date(order.created_at).toLocaleDateString('pt-BR')}</td>
+                <td>${order.nome_comprador}</td>
+                <td>${order.email_comprador || 'N/A'}</td>
+                <td>${order.numeros_selecionados.join(', ')}</td>
+                <td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td>
+                <td><span class="badge ${statusClass}">${order.status_pagamento.toUpperCase()}</span></td>
+            `;
             body.appendChild(tr);
         });
     }
 
-    // --- FUNÇÕES DE PRÊMIOS ---
+    async function approveOrder(orderId) {
+        const order = pendingOrdersMap[orderId];
+        if (!order) return;
+        if (!confirm(`Aprovar pedido de ${order.nome_comprador}?`)) return;
+
+        try {
+            // 1. Atualizar pedido para aprovado
+            const { error: orderError } = await _supabase.from('rifa_pedidos').update({ status_pagamento: 'aprovado' }).eq('id', orderId);
+            if (orderError) throw orderError;
+
+            // 2. Marcar números como comprados
+            for (const num of order.numeros_selecionados) {
+                await _supabase.from('rifa_numeros').update({ 
+                    status_numero: 'comprado',
+                    nome_comprador: order.nome_comprador,
+                    whats_comprador: order.whats_comprador
+                }).eq('numero_rifa', num);
+            }
+
+            // 3. Enviar e-mail de confirmação via Vercel
+            try {
+                await fetch('/api/send-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        to: order.email_comprador,
+                        subject: "✅ Pagamento Confirmado - Rifa TDS",
+                        html: `
+                            <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px;">
+                                <h2 style="color: #ef4444; text-align: center;">PAGAMENTO CONFIRMADO! ✅</h2>
+                                <p>Olá <strong>${order.nome_comprador}</strong>,</p>
+                                <p>Ótima notícia! Seu pagamento foi verificado e confirmado pela nossa equipe. Você já está participando do sorteio!</p>
+                                <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                                    <p><strong>Seus Números da Sorte:</strong> <span style="font-size: 22px; color: #ef4444; font-weight: bold; letter-spacing: 2px;">${order.numeros_selecionados.join(', ')}</span></p>
+                                    <p><strong>Valor Pago:</strong> R$ ${parseFloat(order.valor_total).toFixed(2).replace('.', ',')}</p>
+                                </div>
+                                <p>Guarde bem seus números! O sorteio será anunciado em breve pelos nossos canais oficiais.</p>
+                                <p>Obrigado por apoiar o Templo do Som. Boa sorte! 🔥🎸</p>
+                                <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+                                <p style="text-align: center; font-size: 10px; color: #999;">Templo do Som - Faça parte disso.</p>
+                            </div>
+                        `
+                    })
+                });
+                console.log("✅ E-mail de confirmação enviado via Vercel");
+            } catch (emailErr) {
+                console.error("Erro ao enviar e-mail via Vercel:", emailErr);
+            }
+
+            alert("✅ Pedido aprovado e e-mail enviado!");
+            loadAllData();
+        } catch (e) { alert("Erro ao aprovar: " + e.message); }
+    }
+
+    async function cancelOrder(orderId) {
+        if (!confirm("Deseja realmente cancelar este pedido?")) return;
+        try {
+            await _supabase.from('rifa_pedidos').update({ status_pagamento: 'cancelado' }).eq('id', orderId);
+            alert("❌ Pedido cancelado!");
+            loadAllData();
+        } catch (e) { alert("Erro ao cancelar: " + e.message); }
+    }
+
     async function loadPrizes() {
-        const { data, error } = await _supabase.from('rifa_premios').select('*').order('created_at', { ascending: true });
+        const { data, error } = await _supabase.from('rifa_premios').select('*').order('created_at', { ascending: false });
         if (error) return;
         const body = document.getElementById('body-prizes');
         body.innerHTML = '';
         data?.forEach(prize => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td><img src="${prize.url_imagem}" style="height:50px; border-radius:8px;"></td><td><strong>${prize.titulo}</strong></td><td>${prize.descricao}</td><td>${prize.url_apoiador}</td><td><button class="btn-cancel" onclick="deletePrize('${prize.id}')">Excluir</button></td>`;
+            tr.innerHTML = `
+                <td><img src="${prize.url_imagem}" style="width:60px; height:60px; object-fit:cover; border-radius:8px;"></td>
+                <td><strong>${prize.titulo}</strong></td>
+                <td><small>${prize.descricao}</small></td>
+                <td><a href="${prize.url_apoiador}" target="_blank" style="color:var(--primary)">Link</a></td>
+                <td><button onclick="deletePrize('${prize.id}')" style="background:transparent; border:none; color:#ff4444; cursor:pointer;">Excluir</button></td>
+            `;
             body.appendChild(tr);
         });
     }
@@ -289,33 +371,27 @@
         const titulo = document.getElementById('prize-titulo').value;
         const descricao = document.getElementById('prize-descricao').value;
         const url_apoiador = document.getElementById('prize-url-apoiador').value;
-        const fileInput = document.getElementById('prize-image');
-        const btn = document.getElementById('btn-save-prize');
+        const file = document.getElementById('prize-image').files[0];
 
-        if (!titulo || !fileInput.files[0]) { alert("Título e Imagem são obrigatórios!"); return; }
+        if (!titulo || !file) return alert("Preencha o título e selecione uma imagem!");
+
+        const btn = document.getElementById('btn-save-prize');
         btn.disabled = true; btn.innerText = "Salvando...";
 
         try {
-            const file = fileInput.files[0];
-            const fileName = `${Date.now()}-${file.name}`;
+            const fileName = `${Date.now()}_${file.name}`;
             const { data: uploadData, error: uploadError } = await _supabase.storage.from('comprovantes').upload(`premios/${fileName}`, file);
             if (uploadError) throw uploadError;
 
             const { data: { publicUrl } } = _supabase.storage.from('comprovantes').getPublicUrl(`premios/${fileName}`);
 
-            const { error } = await _supabase.from('rifa_premios').insert({
-                titulo, descricao, url_apoiador, url_imagem: publicUrl
-            });
-            if (error) throw error;
-
-            alert("Prêmio salvo!"); resetPrizeForm(); loadPrizes();
-        } catch (e) { alert("Erro: " + e.message); } finally { btn.disabled = false; btn.innerText = "Salvar Prêmio"; }
-    }
-
-    async function deletePrize(id) {
-        if (!confirm("Excluir este prêmio?")) return;
-        await _supabase.from('rifa_premios').delete().eq('id', id);
-        loadPrizes();
+            await _supabase.from('rifa_premios').insert([{ titulo, descricao, url_apoiador, url_imagem: publicUrl }]);
+            
+            alert("🎁 Prêmio salvo com sucesso!");
+            resetPrizeForm();
+            loadPrizes();
+        } catch (e) { alert("Erro ao salvar prêmio: " + e.message); }
+        finally { btn.disabled = false; btn.innerText = "Salvar Prêmio"; }
     }
 
     function resetPrizeForm() {
@@ -325,74 +401,19 @@
         document.getElementById('prize-image').value = '';
     }
 
+    async function deletePrize(id) {
+        if (!confirm("Excluir este prêmio?")) return;
+        await _supabase.from('rifa_premios').delete().eq('id', id);
+        loadPrizes();
+    }
+
     function filterSold() {
-        const term = document.getElementById('search-sold').value.toLowerCase();
-        const filtered = soldData.filter(n => n.numero_rifa.toString().includes(term) || n.nome_comprador.toLowerCase().includes(term) || n.whats_comprador.includes(term));
-        const body = document.getElementById('body-sold');
-        body.innerHTML = '';
-        filtered.forEach(num => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td><strong style="font-size:16px; color:var(--primary)">#${num.numero_rifa}</strong></td><td>${num.nome_comprador}</td><td>${num.whats_comprador}</td><td><span class="badge badge-paid">PAGO</span></td><td>${new Date(num.created_at).toLocaleDateString('pt-BR')}</td>`;
-            body.appendChild(tr);
+        const query = document.getElementById('search-sold').value.toLowerCase();
+        const rows = document.querySelectorAll('#body-sold tr');
+        rows.forEach(row => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(query) ? '' : 'none';
         });
-    }
-
-    // =============================================================
-    // CORRIGIDO: approveOrder agora envia e-mail de confirmação
-    // ao comprador usando a Edge Function send-email do Supabase
-    // =============================================================
-    async function approveOrder(orderId) {
-        const order = pendingOrdersMap[orderId];
-        if (!order || !confirm(`Aprovar pagamento de ${order.nome_comprador}?`)) return;
-        try {
-            await _supabase.from('rifa_pedidos').update({ status_pagamento: 'aprovado' }).eq('id', order.id);
-            await _supabase.from('rifa_numeros').update({ status_numero: 'comprado' }).in('numero_rifa', order.numeros_selecionados);
-
-            // Enviar e-mail de confirmação ao comprador
-            try {
-                const numerosFormatados = order.numeros_selecionados.join(', ');
-                const valorFormatado = parseFloat(order.valor_total).toFixed(2).replace('.', ',');
-
-                await _supabase.functions.invoke('send-email', {
-                    body: {
-                        to: order.email_comprador,
-                        subject: "✅ Pagamento Confirmado - Rifa TDS",
-                        html: `
-                            <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
-                                <h2 style="color: #ef4444; text-align: center;">PAGAMENTO CONFIRMADO! 🎉</h2>
-                                <p>Olá <strong>${order.nome_comprador}</strong>,</p>
-                                <p>Ótima notícia! Seu pagamento foi verificado e confirmado pela nossa equipe. Você está oficialmente na Rifa TDS!</p>
-                                <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                                    <p><strong>Seus Números da Sorte:</strong></p>
-                                    <p style="font-size: 22px; color: #ef4444; font-weight: bold; letter-spacing: 2px;">${numerosFormatados}</p>
-                                    <p><strong>Valor Pago:</strong> R$ ${valorFormatado}</p>
-                                </div>
-                                <p>Guarde bem seus números! O sorteio será anunciado em breve pelos nossos canais.</p>
-                                <p>Obrigado por apoiar o Templo do Som. Boa sorte! 🎤🔥</p>
-                                <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-                                <p style="text-align: center; font-size: 10px; color: #999;">Templo do Som - Faça parte disso. | templodossom.com.br</p>
-                            </div>
-                        `
-                    }
-                });
-                console.log("✅ E-mail de confirmação enviado para:", order.email_comprador);
-            } catch (emailErr) {
-                console.error("Aviso: Pedido aprovado, mas falha ao enviar e-mail:", emailErr);
-            }
-
-            alert("✅ Aprovado! E-mail de confirmação enviado ao comprador."); 
-            loadAllData();
-        } catch (e) { alert("Erro: " + e.message); }
-    }
-
-    async function cancelOrder(orderId) {
-        const order = pendingOrdersMap[orderId];
-        if (!order || !confirm(`Cancelar este pedido?`)) return;
-        try {
-            await _supabase.from('rifa_pedidos').update({ status_pagamento: 'cancelado' }).eq('id', order.id);
-            await _supabase.from('rifa_numeros').update({ status_numero: 'livre', nome_comprador: null, whats_comprador: null, reservado_ate: null, id_pedido: null }).in('numero_rifa', order.numeros_selecionados);
-            alert(`❌ Cancelado!`); loadAllData();
-        } catch (e) { alert("Erro: " + e.message); }
     }
 
     checkUser();
