@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Rifa TDS</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #ef4444; --primary-hover: #dc2626; --bg: #0a0a0a; --card: #111; --text: #fff; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        
+        #login-screen { width: 100%; max-width: 400px; padding: 40px; background: var(--card); border-radius: 24px; border: 1px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.5); text-align: center; }
+        .logo { width: 120px; margin-bottom: 20px; }
+        h2 { font-weight: 800; text-transform: uppercase; letter-spacing: -1px; margin-bottom: 30px; }
+        input, textarea { width: 100%; padding: 14px; margin-bottom: 15px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: white; box-sizing: border-box; font-size: 16px; }
+        .btn-login { width: 100%; padding: 14px; border-radius: 12px; border: none; background: var(--primary); color: white; font-weight: bold; cursor: pointer; font-size: 16px; transition: 0.3s; }
+        .btn-login:hover { background: var(--primary-hover); transform: translateY(-2px); }
+
+        #admin-dashboard { display: none; width: 100%; max-width: 1200px; margin: 20px; background: var(--card); border-radius: 24px; border: 1px solid #333; padding: 30px; box-sizing: border-box; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #333; padding-bottom: 20px; }
+        .btn-logout { background: transparent; border: 1px solid #444; color: #999; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 16px; text-align: center; }
+        .stat-card h3 { margin: 0; font-size: 12px; color: #777; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-card p { margin: 10px 0 0; font-size: 28px; font-weight: 800; color: var(--primary); }
+
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; background: #1a1a1a; padding: 5px; border-radius: 12px; }
+        .tab-btn { flex: 1; padding: 10px; border: none; background: transparent; border-radius: 8px; cursor: pointer; font-weight: 600; color: #777; transition: 0.3s; }
+        .tab-btn.active { background: #333; color: white; }
+
+        .content-section { display: none; }
+        .content-section.active { display: block; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 15px; color: #555; font-size: 12px; text-transform: uppercase; border-bottom: 1px solid #333; }
+        td { padding: 15px; border-bottom: 1px solid #222; font-size: 14px; }
+        
+        .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; }
+        .badge-pending { background: #422c00; color: #ffb000; }
+        .badge-paid { background: #064e3b; color: #34d399; }
+        .badge-cancelled { background: #450a0a; color: #f87171; }
+
+        .btn-approve { background: #059669; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-cancel { background: #dc2626; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-approve:disabled, .btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .receipt-link { color: var(--primary); text-decoration: none; font-weight: bold; }
+        .search-box { width: 100%; padding: 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 12px; color: white; margin-bottom: 20px; }
+
+        /* Estilos para o formulário de prêmios */
+        .prize-form-container { background: #1a1a1a; padding: 20px; border-radius: 16px; border: 1px solid #333; margin-bottom: 30px; }
+        .prize-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        @media (max-width: 768px) { .prize-form-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen">
+        <img src="https://qejoudfuqzhwqebmtdaq.supabase.co/storage/v1/object/public/comprovantes/TDS_logo_sem_fundo.png" class="logo" alt="TDS Logo">
+        <h2>Painel Admin</h2>
+        <input type="email" id="login-email" placeholder="Seu e-mail">
+        <input type="password" id="login-password" placeholder="Sua senha">
+        <button class="btn-login" id="btn-login-action" onclick="handleLogin()">Entrar</button>
+        <p id="login-error" style="color: #ef4444; font-size: 13px; margin-top: 15px; display: none;"></p>
+    </div>
+
+    <div id="admin-dashboard">
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <img src="https://qejoudfuqzhwqebmtdaq.supabase.co/storage/v1/object/public/comprovantes/TDS_logo_sem_fundo.png" style="height: 40px;">
+                <h1>Dashboard TDS</h1>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="loadAllData()" style="padding: 8px 16px; cursor: pointer; border-radius: 8px; border: 1px solid #444; background: transparent; color: #fff; font-weight: bold;">🔄 Atualizar</button>
+                <button class="btn-logout" onclick="handleLogout()">Sair</button>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card"><h3>Total Vendido</h3><p id="stat-total-money">R$ 0,00</p></div>
+            <div class="stat-card"><h3>Números Pagos</h3><p id="stat-paid-count">0</p></div>
+            <div class="stat-card"><h3>Pendentes</h3><p id="stat-pending-count">0</p></div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('pending')">📥 Pedidos</button>
+            <button class="tab-btn" onclick="showTab('sold')">💎 Vendidos</button>
+            <button class="tab-btn" onclick="showTab('history')">📜 Histórico</button>
+            <button class="tab-btn" onclick="showTab('prizes')">🎁 Prêmios</button>
+        </div>
+
+        <div id="section-pending" class="content-section active">
+            <table id="table-pending">
+                <thead>
+                    <tr>
+                        <th>Comprador</th>
+                        <th>WhatsApp</th>
+                        <th>Números</th>
+                        <th>Valor</th>
+                        <th>Comprovante</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="body-pending"></tbody>
+            </table>
+            <div id="empty-pending" style="display:none; text-align:center; padding:40px; color:#555;">Nenhum pedido pendente.</div>
+        </div>
+
+        <div id="section-sold" class="content-section">
+            <input type="text" id="search-sold" class="search-box" placeholder="🔍 Buscar número, nome ou whatsapp..." onkeyup="filterSold()">
+            <table id="table-sold">
+                <thead>
+                    <tr>
+                        <th>Nº Rifa</th>
+                        <th>Comprador</th>
+                        <th>WhatsApp</th>
+                        <th>Status</th>
+                        <th>Data</th>
+                    </tr>
+                </thead>
+                <tbody id="body-sold"></tbody>
+            </table>
+        </div>
+
+        <div id="section-history" class="content-section">
+            <table id="table-history">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Comprador</th>
+                        <th>Números</th>
+                        <th>Valor</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="body-history"></tbody>
+            </table>
+        </div>
+
+        <!-- SEÇÃO DE PRÊMIOS -->
+        <div id="section-prizes" class="content-section">
+            <div class="prize-form-container">
+                <h3 style="margin-top:0">Gerenciar Prêmios</h3>
+                <div class="prize-form-grid">
+                    <div>
+                        <input type="hidden" id="prize-id">
+                        <input type="text" id="prize-titulo" placeholder="Título do Prêmio">
+                        <textarea id="prize-descricao" placeholder="Descrição do Prêmio" rows="3"></textarea>
+                    </div>
+                    <div>
+                        <input type="text" id="prize-url-apoiador" placeholder="Link do Instagram/Apoiador">
+                        <label style="display:block; font-size:12px; color:#777; margin-bottom:5px;">Foto do Prêmio:</label>
+                        <input type="file" id="prize-image" accept="image/*">
+                        <div style="display:flex; gap:10px; margin-top:10px;">
+                            <button class="btn-login" onclick="savePrize()" id="btn-save-prize">Salvar Prêmio</button>
+                            <button class="btn-logout" onclick="resetPrizeForm()">Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <table id="table-prizes">
+                <thead>
+                    <tr>
+                        <th>Imagem</th>
+                        <th>Título</th>
+                        <th>Descrição</th>
+                        <th>Apoiador</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="body-prizes"></tbody>
+            </table>
+        </div>
+    </div>
+
+<script>
+    const SUPABASE_URL = "https://qejoudfuqzhwqebmtdaq.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_d3z39rItKmkGFtCqeZQrOQ_DC6rriDl"; 
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let soldData = [];
+    let pendingOrdersMap = {};
+
+    async function handleLogin() {
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        const btn = document.getElementById('btn-login-action');
+        const errorEl = document.getElementById('login-error');
+        btn.disabled = true; btn.innerText = "Autenticando..."; errorEl.style.display = "none";
+        const { data, error } = await _supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+            errorEl.innerText = "Erro: " + error.message; errorEl.style.display = "block";
+            btn.disabled = false; btn.innerText = "Entrar";
+        } else { checkUser(); }
+    }
+
+    async function handleLogout() { await _supabase.auth.signOut(); checkUser(); }
+
+    async function checkUser() {
+        const { data: { session } } = await _supabase.auth.getSession();
+        if (session) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('admin-dashboard').style.display = 'block';
+            document.body.style.alignItems = 'flex-start';
+            loadAllData();
+        } else {
+            document.getElementById('login-screen').style.display = 'block';
+            document.getElementById('admin-dashboard').style.display = 'none';
+            document.body.style.alignItems = 'center';
+        }
+    }
+
+    function showTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById(`section-${tab}`).classList.add('active');
+    }
+
+    async function loadAllData() {
+        console.log("🔄 Carregando dados...");
+        await Promise.all([loadPendingOrders(), loadSoldNumbers(), loadHistory(), loadPrizes()]);
+    }
+
+    async function loadPendingOrders() {
+        const { data, error } = await _supabase.from('rifa_pedidos').select('*').eq('status_pagamento', 'pendente').order('created_at', { ascending: false });
+        if (error) return;
+        const body = document.getElementById('body-pending');
+        const empty = document.getElementById('empty-pending');
+        body.innerHTML = ''; pendingOrdersMap = {};
+        if (data && data.length > 0) {
+            document.getElementById('stat-pending-count').innerText = data.length;
+            empty.style.display = 'none';
+            data.forEach(order => {
+                pendingOrdersMap[order.id] = order;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td><strong>${order.nome_comprador}</strong></td><td>${order.whats_comprador}</td><td><span style="color:var(--primary); font-weight:bold;">${order.numeros_selecionados.join(', ')}</span></td><td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td><td><a href="${order.url_comprovante}" target="_blank" class="receipt-link">📄 Ver</a></td><td><div style="display:flex; gap:5px;"><button class="btn-approve" onclick="approveOrder('${order.id}')">Aprovar</button><button class="btn-cancel" onclick="cancelOrder('${order.id}')">Cancelar</button></div></td>`;
+                body.appendChild(tr);
+            });
+        } else { document.getElementById('stat-pending-count').innerText = '0'; empty.style.display = 'block'; }
+    }
+
+    async function loadSoldNumbers() {
+        const { data, error } = await _supabase.from('rifa_numeros').select('*').eq('status_numero', 'comprado').order('numero_rifa', { ascending: true });
+        if (error) return;
+        soldData = data || [];
+        const body = document.getElementById('body-sold');
+        body.innerHTML = ''; let totalMoney = 0;
+        document.getElementById('stat-paid-count').innerText = soldData.length;
+        soldData.forEach(num => {
+            totalMoney += 10; 
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><strong style="font-size:16px; color:var(--primary)">#${num.numero_rifa}</strong></td><td>${num.nome_comprador}</td><td>${num.whats_comprador}</td><td><span class="badge badge-paid">PAGO</span></td><td>${new Date(num.created_at).toLocaleDateString('pt-BR')}</td>`;
+            body.appendChild(tr);
+        });
+        document.getElementById('stat-total-money').innerText = `R$ ${totalMoney.toFixed(2).replace('.', ',')}`;
+    }
+
+    async function loadHistory() {
+        const { data, error } = await _supabase.from('rifa_pedidos').select('*').order('created_at', { ascending: false }).limit(50);
+        if (error) return;
+        const body = document.getElementById('body-history');
+        body.innerHTML = '';
+        data?.forEach(order => {
+            const tr = document.createElement('tr');
+            const statusMap = { pendente: '<span class="badge badge-pending">PENDENTE</span>', aprovado: '<span class="badge badge-paid">APROVADO</span>', cancelado: '<span class="badge badge-cancelled">CANCELADO</span>' };
+            const statusBadge = statusMap[order.status_pagamento] || order.status_pagamento;
+            tr.innerHTML = `<td>${new Date(order.created_at).toLocaleDateString('pt-BR')}</td><td>${order.nome_comprador}</td><td>${order.numeros_selecionados.join(', ')}</td><td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td><td>${statusBadge}</td>`;
+            body.appendChild(tr);
+        });
+    }
+
+    // --- FUNÇÕES DE PRÊMIOS ---
+    async function loadPrizes() {
+        const { data, error } = await _supabase.from('rifa_premios').select('*').order('created_at', { ascending: true });
+        if (error) return;
+        const body = document.getElementById('body-prizes');
+        body.innerHTML = '';
+        data?.forEach(prize => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><img src="${prize.url_imagem}" style="height:50px; border-radius:8px;"></td><td><strong>${prize.titulo}</strong></td><td>${prize.descricao}</td><td>${prize.url_apoiador}</td><td><button class="btn-cancel" onclick="deletePrize('${prize.id}')">Excluir</button></td>`;
+            body.appendChild(tr);
+        });
+    }
+
+    async function savePrize() {
+        const titulo = document.getElementById('prize-titulo').value;
+        const descricao = document.getElementById('prize-descricao').value;
+        const url_apoiador = document.getElementById('prize-url-apoiador').value;
+        const fileInput = document.getElementById('prize-image');
+        const btn = document.getElementById('btn-save-prize');
+
+        if (!titulo || !fileInput.files[0]) { alert("Título e Imagem são obrigatórios!"); return; }
+        btn.disabled = true; btn.innerText = "Salvando...";
+
+        try {
+            const file = fileInput.files[0];
+            const fileName = `${Date.now()}-${file.name}`;
+            const { data: uploadData, error: uploadError } = await _supabase.storage.from('comprovantes').upload(`premios/${fileName}`, file);
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = _supabase.storage.from('comprovantes').getPublicUrl(`premios/${fileName}`);
+
+            const { error } = await _supabase.from('rifa_premios').insert({
+                titulo, descricao, url_apoiador, url_imagem: publicUrl
+            });
+            if (error) throw error;
+
+            alert("Prêmio salvo!"); resetPrizeForm(); loadPrizes();
+        } catch (e) { alert("Erro: " + e.message); } finally { btn.disabled = false; btn.innerText = "Salvar Prêmio"; }
+    }
+
+    async function deletePrize(id) {
+        if (!confirm("Excluir este prêmio?")) return;
+        await _supabase.from('rifa_premios').delete().eq('id', id);
+        loadPrizes();
+    }
+
+    function resetPrizeForm() {
+        document.getElementById('prize-titulo').value = '';
+        document.getElementById('prize-descricao').value = '';
+        document.getElementById('prize-url-apoiador').value = '';
+        document.getElementById('prize-image').value = '';
+    }
+
+    function filterSold() {
+        const term = document.getElementById('search-sold').value.toLowerCase();
+        const filtered = soldData.filter(n => n.numero_rifa.toString().includes(term) || n.nome_comprador.toLowerCase().includes(term) || n.whats_comprador.includes(term));
+        const body = document.getElementById('body-sold');
+        body.innerHTML = '';
+        filtered.forEach(num => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><strong style="font-size:16px; color:var(--primary)">#${num.numero_rifa}</strong></td><td>${num.nome_comprador}</td><td>${num.whats_comprador}</td><td><span class="badge badge-paid">PAGO</span></td><td>${new Date(num.created_at).toLocaleDateString('pt-BR')}</td>`;
+            body.appendChild(tr);
+        });
+    }
+
+    // =============================================================
+    // CORRIGIDO: approveOrder agora envia e-mail de confirmação
+    // ao comprador usando a Edge Function send-email do Supabase
+    // =============================================================
+    async function approveOrder(orderId) {
+        const order = pendingOrdersMap[orderId];
+        if (!order || !confirm(`Aprovar pagamento de ${order.nome_comprador}?`)) return;
+        try {
+            await _supabase.from('rifa_pedidos').update({ status_pagamento: 'aprovado' }).eq('id', order.id);
+            await _supabase.from('rifa_numeros').update({ status_numero: 'comprado' }).in('numero_rifa', order.numeros_selecionados);
+
+            // Enviar e-mail de confirmação ao comprador
+            try {
+                const numerosFormatados = order.numeros_selecionados.join(', ');
+                const valorFormatado = parseFloat(order.valor_total).toFixed(2).replace('.', ',');
+
+                await _supabase.functions.invoke('send-email', {
+                    body: {
+                        to: order.email_comprador,
+                        subject: "✅ Pagamento Confirmado - Rifa TDS",
+                        html: `
+                            <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+                                <h2 style="color: #ef4444; text-align: center;">PAGAMENTO CONFIRMADO! 🎉</h2>
+                                <p>Olá <strong>${order.nome_comprador}</strong>,</p>
+                                <p>Ótima notícia! Seu pagamento foi verificado e confirmado pela nossa equipe. Você está oficialmente na Rifa TDS!</p>
+                                <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                                    <p><strong>Seus Números da Sorte:</strong></p>
+                                    <p style="font-size: 22px; color: #ef4444; font-weight: bold; letter-spacing: 2px;">${numerosFormatados}</p>
+                                    <p><strong>Valor Pago:</strong> R$ ${valorFormatado}</p>
+                                </div>
+                                <p>Guarde bem seus números! O sorteio será anunciado em breve pelos nossos canais.</p>
+                                <p>Obrigado por apoiar o Templo do Som. Boa sorte! 🎤🔥</p>
+                                <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+                                <p style="text-align: center; font-size: 10px; color: #999;">Templo do Som - Faça parte disso. | templodossom.com.br</p>
+                            </div>
+                        `
+                    }
+                });
+                console.log("✅ E-mail de confirmação enviado para:", order.email_comprador);
+            } catch (emailErr) {
+                console.error("Aviso: Pedido aprovado, mas falha ao enviar e-mail:", emailErr);
+            }
+
+            alert("✅ Aprovado! E-mail de confirmação enviado ao comprador."); 
+            loadAllData();
+        } catch (e) { alert("Erro: " + e.message); }
+    }
+
+    async function cancelOrder(orderId) {
+        const order = pendingOrdersMap[orderId];
+        if (!order || !confirm(`Cancelar este pedido?`)) return;
+        try {
+            await _supabase.from('rifa_pedidos').update({ status_pagamento: 'cancelado' }).eq('id', order.id);
+            await _supabase.from('rifa_numeros').update({ status_numero: 'livre', nome_comprador: null, whats_comprador: null, reservado_ate: null, id_pedido: null }).in('numero_rifa', order.numeros_selecionados);
+            alert(`❌ Cancelado!`); loadAllData();
+        } catch (e) { alert("Erro: " + e.message); }
+    }
+
+    checkUser();
+</script>
+</body>
+</html>
