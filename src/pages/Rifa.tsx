@@ -195,13 +195,16 @@ const Rifa = () => {
       if (updateError) throw updateError;
 
       // Disparar e-mail de reserva via Edge Function
+           // Disparar e-mail de reserva via API da Vercel
       try {
-        await supabase.functions.invoke('send-email', {
-          body: {
+        await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             to: parsed.data.email,
             subject: "Reserva Confirmada - Rifa TDS",
             html: `
-              <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+              <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px;">
                 <h2 style="color: #ef4444; text-align: center;">RESERVA CONFIRMADA! 🎟️</h2>
                 <p>Olá <strong>${parsed.data.name}</strong>,</p>
                 <p>Sua reserva na Rifa TDS foi realizada com sucesso! Agora nossa equipe vai conferir o seu pagamento.</p>
@@ -214,9 +217,12 @@ const Rifa = () => {
                 <p style="text-align: center; font-size: 10px; color: #999;">Templo do Som - Faça parte disso.</p>
               </div>
             `
-          }
+          })
         });
-      } catch (e) { console.error("Erro ao disparar e-mail:", e); }
+      } catch (e) {
+        console.error("Erro ao disparar e-mail:", e);
+      }
+
 
       setLastOrder({
         id: order.id,
