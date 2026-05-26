@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Ticket, Loader2, CheckCircle2, Upload, X, Mail, ExternalLink } from "lucide-react";
+import { ArrowLeft, Ticket, Loader2, CheckCircle2, Upload, X, Mail, ExternalLink, Copy } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -194,8 +194,7 @@ const Rifa = () => {
 
       if (updateError) throw updateError;
 
-      // Disparar e-mail de reserva via Edge Function
-           // Disparar e-mail de reserva via API da Vercel
+      // Disparar e-mail de reserva via Vercel
       try {
         await fetch('/api/send-email', {
           method: 'POST',
@@ -204,7 +203,7 @@ const Rifa = () => {
             to: parsed.data.email,
             subject: "Reserva Confirmada - Rifa TDS",
             html: `
-              <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px;">
+              <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
                 <h2 style="color: #ef4444; text-align: center;">RESERVA CONFIRMADA! 🎟️</h2>
                 <p>Olá <strong>${parsed.data.name}</strong>,</p>
                 <p>Sua reserva na Rifa TDS foi realizada com sucesso! Agora nossa equipe vai conferir o seu pagamento.</p>
@@ -219,9 +218,7 @@ const Rifa = () => {
             `
           })
         });
-      } catch (e) {
-        console.error("Erro ao disparar e-mail:", e);
-      }
+      } catch (e) { console.error("Erro ao disparar e-mail:", e); }
 
       setLastOrder({
         id: order.id,
@@ -356,7 +353,7 @@ const Rifa = () => {
               <p className="text-xs font-bold text-primary uppercase mb-2 tracking-widest">Chave PIX para Pagamento:</p>
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-mono font-bold break-all text-foreground">{PIX_KEY}</p>
-                <button onClick={() => { navigator.clipboard.writeText(PIX_KEY); toast({ title: "Chave PIX copiada!" }); }} className="p-2.5 bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors shrink-0"><CheckCircle2 className="h-4 w-4 text-primary" /></button>
+                <button onClick={() => { navigator.clipboard.writeText(PIX_KEY); toast({ title: "Chave PIX copiada!" }); }} className="p-2.5 bg-primary/10 hover:bg-primary/20 rounded-lg transition-colors shrink-0"><Copy className="h-4 w-4 text-primary" /></button>
               </div>
             </div>
 
