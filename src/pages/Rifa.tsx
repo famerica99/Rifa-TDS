@@ -223,7 +223,6 @@ const Rifa = () => {
         console.error("Erro ao disparar e-mail:", e);
       }
 
-
       setLastOrder({
         id: order.id,
         name: parsed.data.name,

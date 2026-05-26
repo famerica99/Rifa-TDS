@@ -20,7 +20,7 @@ export default async function handler(req, res) {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'Rifa TDS <rifa@templodossom.com.br>',
+        from: 'Rifa TDS <rifa@templodosom.com.br>',
         to: [to],
         subject: subject,
         html: html,
