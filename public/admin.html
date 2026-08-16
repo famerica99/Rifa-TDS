@@ -340,14 +340,49 @@
         } catch (e) { alert("Erro ao aprovar: " + e.message); }
     }
 
-    async function cancelOrder(orderId) {
-        if (!confirm("Deseja realmente cancelar este pedido?")) return;
-        try {
-            await _supabase.from('rifa_pedidos').update({ status_pagamento: 'cancelado' }).eq('id', orderId);
-            alert("❌ Pedido cancelado!");
-            loadAllData();
-        } catch (e) { alert("Erro ao cancelar: " + e.message); }
+   async function cancelOrder(orderId) {
+    if (!confirm("Deseja realmente cancelar este pedido?")) return;
+
+    const order = pendingOrdersMap[orderId];
+
+    if (!order) {
+        alert("Pedido não encontrado.");
+        return;
     }
+
+    try {
+        // 1. Cancela o pedido
+        const { error: orderError } = await _supabase
+            .from('rifa_pedidos')
+            .update({ status_pagamento: 'cancelado' })
+            .eq('id', orderId);
+
+        if (orderError) throw orderError;
+
+        // 2. Libera cada número desse pedido
+        for (const numero of order.numeros_selecionados) {
+            const { error: numberError } = await _supabase
+                .from('rifa_numeros')
+                .update({
+                    status_numero: 'livre',
+                    nome_comprador: null,
+                    whats_comprador: null,
+                    reservado_ate: null
+                })
+                .eq('numero_rifa', numero)
+                .eq('status_numero', 'reservado');
+
+            if (numberError) throw numberError;
+        }
+
+        alert("✅ Pedido cancelado e números liberados!");
+        loadAllData();
+
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao cancelar e liberar os números: " + e.message);
+    }
+}
 
     async function loadPrizes() {
         const { data, error } = await _supabase.from('rifa_premios').select('*').order('created_at', { ascending: false });
