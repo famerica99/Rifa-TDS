@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
+    <link rel="icon" type="image/png" href="/img/TDS_logo_sem_fundo.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Rifa TDS</title>
@@ -134,6 +135,7 @@
                         <th>Números</th>
                         <th>Valor</th>
                         <th>Status</th>
+                        <th>Ações</th>
                     </tr>
                 </thead>
                 <tbody id="body-history"></tbody>
@@ -281,6 +283,13 @@
                 <td>${order.numeros_selecionados.join(', ')}</td>
                 <td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td>
                 <td><span class="badge ${statusClass}">${order.status_pagamento.toUpperCase()}</span></td>
+                <td>
+                    <button
+                        onclick="deleteOrder('${order.id}')"
+                        style="background:#dc2626; color:white; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">
+                        Excluir
+                    </button>
+                </td>
             `;
             body.appendChild(tr);
         });
@@ -434,6 +443,61 @@
         document.getElementById('prize-descricao').value = '';
         document.getElementById('prize-url-apoiador').value = '';
         document.getElementById('prize-image').value = '';
+    }
+
+    async function deleteOrder(orderId) {
+    if (!confirm("Excluir este pedido definitivamente? Essa ação não pode ser desfeita.")) {
+        return;
+    }
+
+    try {
+        // Busca o pedido antes de excluir para saber seus números e status
+        const { data: order, error: findError } = await _supabase
+            .from('rifa_pedidos')
+            .select('*')
+            .eq('id', orderId)
+            .single();
+
+        if (findError) throw findError;
+
+        // Não apaga pedidos aprovados automaticamente
+        if (order.status_pagamento === 'aprovado') {
+            const continuar = confirm(
+                "Este pedido está APROVADO. Excluir também pode liberar números pagos. Deseja continuar?"
+            );
+
+            if (!continuar) return;
+        }
+
+        // Libera os números ligados ao pedido
+        for (const numero of order.numeros_selecionados || []) {
+            const { error: numberError } = await _supabase
+                .from('rifa_numeros')
+                .update({
+                    status_numero: 'livre',
+                    nome_comprador: null,
+                    whats_comprador: null,
+                    reservado_ate: null
+                })
+                .eq('numero_rifa', numero);
+
+            if (numberError) throw numberError;
+        }
+
+        // Exclui o pedido
+        const { error: deleteError } = await _supabase
+            .from('rifa_pedidos')
+            .delete()
+            .eq('id', orderId);
+
+        if (deleteError) throw deleteError;
+
+        alert("Pedido excluído e números liberados!");
+        await loadAllData();
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao excluir pedido: " + e.message);
+    }
     }
 
     async function deletePrize(id) {
