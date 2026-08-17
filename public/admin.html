@@ -20,6 +20,7 @@
 
         #admin-dashboard { display: none; width: 100%; max-width: 1200px; margin: 20px; background: var(--card); border-radius: 24px; border: 1px solid #333; padding: 30px; box-sizing: border-box; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #333; padding-bottom: 20px; }
+        .header-logo { width: 96px; height: 56px; object-fit: contain; display: block; }
         .btn-logout { background: transparent; border: 1px solid #444; color: #999; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
         
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
@@ -69,7 +70,7 @@
     <div id="admin-dashboard">
         <div class="header">
             <div style="display: flex; align-items: center; gap: 15px;">
-                <img src="/img/TDS_logo_sem_fundo.png" style="height: 40px;">
+                <img src="/img/TDS_logo_sem_fundo.png" class="header-logo" alt="Logo TDS">
                 <h1>Dashboard TDS</h1>
             </div>
             <div style="display: flex; gap: 10px;">
@@ -309,10 +310,19 @@
         if (error) return;
         soldData = data || [];
         const body = document.getElementById('body-sold');
-        body.innerHTML = ''; let totalMoney = 0;
+        body.innerHTML = '';
+
+        const { data: config, error: configError } = await _supabase
+            .from('rifa_config')
+            .select('preco_numero')
+            .eq('id', 1)
+            .maybeSingle();
+        if (configError || !config) return;
+
+        const pricePerNumber = Number(config.preco_numero);
+        const totalMoney = soldData.length * pricePerNumber;
         document.getElementById('stat-paid-count').innerText = soldData.length;
         soldData.forEach(num => {
-            totalMoney += 10; 
             const tr = document.createElement('tr');
             tr.innerHTML = `<td><strong style="font-size:16px; color:var(--primary)">#${num.numero_rifa}</strong></td><td>${num.nome_comprador}</td><td>${num.whats_comprador}</td><td><span class="badge badge-paid">PAGO</span></td><td>${new Date(num.created_at).toLocaleDateString('pt-BR')}</td>`;
             body.appendChild(tr);
