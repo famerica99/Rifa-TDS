@@ -10,7 +10,6 @@ import NumberButton, { NumberStatus } from "@/components/rifa/NumberButton";
 import { supabase } from "@/lib/supabase";
 
 const TOTAL = 500;
-const PRICE = 10;
 const PIX_KEY = "a4e37a34-0e86-41f0-8623-d68f0120c0a8";
 
 // Interface para os prêmios (Adicionado para suportar banco de dados)
@@ -57,6 +56,24 @@ const Rifa = () => {
   // Estados para prêmios dinâmicos
   const [prizes, setPrizes] = useState<PrizeItem[]>([]);
   const [loadingPrizes, setLoadingPrizes] = useState(true);
+  const [price, setPrice] = useState<number | null>(null);
+
+  const fetchPrice = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("rifa_config")
+      .select("preco_numero")
+      .eq("id", 1)
+      .eq("rifa_ativa", true)
+      .single();
+
+    if (error || !data) {
+      toast({ title: "Rifa indisponível", description: "O preço da rifa ainda não foi configurado.", variant: "destructive" });
+      setPrice(null);
+      return;
+    }
+
+    setPrice(Number(data.preco_numero));
+  }, []);
 
   // Função para buscar prêmios (Nova)
   const fetchPrizes = useCallback(async () => {
@@ -81,8 +98,8 @@ const Rifa = () => {
       // REMOVIDO: A lógica de expiração automática para tornar o processo manual
       
       const { data, error } = await supabase
-        .from("rifa_numeros")
-        .select("numero_rifa, status_numero, nome_comprador, whats_comprador, reservado_ate");
+        .from("rifa_numeros_publicos")
+        .select("numero_rifa, status_numero");
       
       if (error) throw error;
 
@@ -100,7 +117,8 @@ const Rifa = () => {
   useEffect(() => {
     fetchRifaNumbers();
     fetchPrizes(); // Chama a busca de prêmios
-  }, [fetchRifaNumbers, fetchPrizes]);
+    fetchPrice();
+  }, [fetchRifaNumbers, fetchPrizes, fetchPrice]);
 
   const toggle = (n: number) => {
     setSelected((prev) => {
@@ -110,7 +128,7 @@ const Rifa = () => {
     });
   };
 
-  const total = selected.size * PRICE;
+  const total = selected.size * (price ?? 0);
   
   const getStatus = (n: number): NumberStatus => {
     if (selected.has(n)) return "selected";
@@ -165,34 +183,20 @@ const Rifa = () => {
         .from('comprovantes')
         .getPublicUrl(fileName);
 
-      const { data: order, error: orderError } = await supabase
-        .from("rifa_pedidos")
-        .insert({
-          nome_comprador: parsed.data.name,
-          email_comprador: parsed.data.email,
-          whats_comprador: parsed.data.whatsapp,
-          numeros_selecionados: sortedNumbers,
-          valor_total: total,
-          status_pagamento: "pendente",
-          url_comprovante: publicUrl,
-        })
-        .select()
-        .single();
+      if (price === null) {
+        throw new Error("A rifa está sem preço configurado.");
+      }
+
+      const { data: order, error: orderError } = await supabase.rpc("criar_pedido_seguro", {
+        p_nome: parsed.data.name,
+        p_email: parsed.data.email,
+        p_whatsapp: parsed.data.whatsapp,
+        p_numeros: sortedNumbers,
+        p_url_comprovante: publicUrl,
+      });
 
       if (orderError) throw orderError;
-
-      const { error: updateError } = await supabase
-        .from("rifa_numeros")
-        .update({
-          status_numero: "reservado",
-          nome_comprador: parsed.data.name,
-          whats_comprador: parsed.data.whatsapp,
-          // reservado_ate removido para controle manual
-          id_pedido: order.id,
-        })
-        .in("numero_rifa", sortedNumbers);
-
-      if (updateError) throw updateError;
+      if (!order) throw new Error("O pedido não foi criado.");
 
       // Disparar e-mail de reserva via Vercel
       try {
@@ -344,7 +348,7 @@ const Rifa = () => {
             <h2 className="font-display text-3xl text-primary mb-6 uppercase tracking-tighter">Resumo</h2>
             <div className="space-y-4 mb-8">
               <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Números selecionados</span><span className="font-bold text-foreground text-lg">{selected.size}</span></div>
-              <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Valor unitário</span><span className="font-bold text-foreground text-lg">R$ 10,00</span></div>
+              <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Valor unitário</span><span className="font-bold text-foreground text-lg">{price === null ? "—" : `R$ ${price.toFixed(2).replace(".", ",")}`}</span></div>
               <div className="h-px bg-border my-4" />
               <div className="flex justify-between items-center"><span className="text-muted-foreground font-bold uppercase tracking-widest">Total</span><span className="font-bold text-primary text-3xl">R$ {total.toFixed(2).replace(".", ",")}</span></div>
             </div>
@@ -381,7 +385,7 @@ const Rifa = () => {
                   </Button>
                 </div>
               </div>
-              <Button type="submit" className="w-full h-14 text-lg font-display uppercase tracking-widest" disabled={submitting}>
+              <Button type="submit" className="w-full h-14 text-lg font-display uppercase tracking-widest" disabled={submitting || price === null}>
                 {submitting ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Processando...</> : "Finalizar Reserva"}
               </Button>
             </form>
