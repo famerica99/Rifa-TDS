@@ -58,7 +58,7 @@
 <body>
 
     <div id="login-screen">
-        <img src="https://qejoudfuqzhwqebmtdaq.supabase.co/storage/v1/object/public/comprovantes/TDS_logo_sem_fundo.png" class="logo" alt="TDS Logo">
+        <img src="/img/TDS_logo_sem_fundo.png" class="logo" alt="TDS Logo">
         <h2>Painel Admin</h2>
         <input type="email" id="login-email" placeholder="Seu e-mail">
         <input type="password" id="login-password" placeholder="Sua senha">
@@ -69,7 +69,7 @@
     <div id="admin-dashboard">
         <div class="header">
             <div style="display: flex; align-items: center; gap: 15px;">
-                <img src="https://qejoudfuqzhwqebmtdaq.supabase.co/storage/v1/object/public/comprovantes/TDS_logo_sem_fundo.png" style="height: 40px;">
+                <img src="/img/TDS_logo_sem_fundo.png" style="height: 40px;">
                 <h1>Dashboard TDS</h1>
             </div>
             <div style="display: flex; gap: 10px;">
@@ -326,6 +326,7 @@
         const body = document.getElementById('body-history');
         body.innerHTML = '';
         data?.forEach(order => {
+            pendingOrdersMap[order.id] = order;
             const tr = document.createElement('tr');
             const statusClass = order.status_pagamento === 'aprovado' ? 'badge-paid' : (order.status_pagamento === 'cancelado' ? 'badge-cancelled' : 'badge-pending');
             tr.innerHTML = `
@@ -335,7 +336,12 @@
                 <td>${order.numeros_selecionados.join(', ')}</td>
                 <td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td>
                 <td><span class="badge ${statusClass}">${order.status_pagamento.toUpperCase()}</span></td>
-                <td><span style="color:#777; font-size:12px;">Preservado no histórico</span></td>
+                <td>
+                    <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                        <button class="btn-cancel" onclick="cancelOrder('${order.id}')">Cancelar compra</button>
+                        <button class="btn-cancel" onclick="cancelPartialOrder('${order.id}')">Cancelar números</button>
+                    </div>
+                </td>
             `;
             body.appendChild(tr);
         });
@@ -389,6 +395,54 @@
             await loadAllData();
         } catch (e) {
             alert('Erro ao cancelar: ' + e.message);
+        }
+    }
+
+    async function cancelPartialOrder(orderId) {
+        const order = pendingOrdersMap[orderId];
+        if (!order) {
+            alert('Pedido não encontrado. Atualize o dashboard.');
+            return;
+        }
+
+        const rawNumbers = prompt('Informe os números a cancelar, separados por vírgula. Exemplo: 12,15,18');
+        if (rawNumbers === null) return;
+
+        const numbers = rawNumbers
+            .split(',')
+            .map(value => Number(value.trim()))
+            .filter(Number.isInteger);
+
+        const uniqueNumbers = [...new Set(numbers)].sort((a, b) => a - b);
+        if (uniqueNumbers.length === 0) {
+            alert('Informe ao menos um número válido.');
+            return;
+        }
+
+        const valor = prompt('Informe o valor estornado para esses números. Deixe vazio se não houve pagamento:');
+        if (valor === null) return;
+        const observacao = prompt('Informe o motivo e a referência do estorno:');
+        if (observacao === null) return;
+
+        const parsedValue = valor.trim() === '' ? null : Number(valor.replace(',', '.'));
+        if (parsedValue !== null && (!Number.isFinite(parsedValue) || parsedValue < 0)) {
+            alert('Valor de estorno inválido.');
+            return;
+        }
+
+        try {
+            const { error } = await _supabase.rpc('cancelar_numeros_pedido', {
+                p_pedido_id: orderId,
+                p_numeros: uniqueNumbers,
+                p_valor_estorno: parsedValue,
+                p_observacao: observacao
+            });
+            if (error) throw error;
+
+            alert('Números cancelados e estorno registrado.');
+            await loadAllData();
+        } catch (e) {
+            alert('Erro ao cancelar números: ' + e.message);
         }
     }
 
