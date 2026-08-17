@@ -82,6 +82,17 @@
             <div class="stat-card"><h3>Total Vendido</h3><p id="stat-total-money">R$ 0,00</p></div>
             <div class="stat-card"><h3>Números Pagos</h3><p id="stat-paid-count">0</p></div>
             <div class="stat-card"><h3>Pendentes</h3><p id="stat-pending-count">0</p></div>
+            <div class="stat-card"><h3>Preço por Número</h3><p id="stat-price">—</p></div>
+        </div>
+
+        <div class="prize-form-container" style="margin-bottom:30px;">
+            <h3 style="margin-top:0">Configuração da Rifa Atual</h3>
+            <p style="color:#999; font-size:13px;">Altere este valor somente quando encerrar a rifa atual e iniciar uma nova. Pedidos já criados mantêm o valor original.</p>
+            <div style="display:flex; gap:10px; align-items:center; max-width:420px;">
+                <input type="number" id="rifa-price" min="0.01" step="0.01" placeholder="Preço por número">
+                <button class="btn-login" onclick="saveRifaPrice()" id="btn-save-price">Salvar preço</button>
+            </div>
+            <p id="price-message" style="font-size:13px; margin:8px 0 0;"></p>
         </div>
 
         <div class="tabs">
@@ -223,7 +234,48 @@
 
     async function loadAllData() {
         console.log("🔄 Carregando dados...");
-        await Promise.all([loadPendingOrders(), loadSoldNumbers(), loadHistory(), loadPrizes()]);
+        await Promise.all([loadPrice(), loadPendingOrders(), loadSoldNumbers(), loadHistory(), loadPrizes()]);
+    }
+
+    async function loadPrice() {
+        const { data, error } = await _supabase
+            .from('rifa_config')
+            .select('preco_numero, rifa_ativa')
+            .eq('id', 1)
+            .maybeSingle();
+        if (error) {
+            document.getElementById('price-message').innerText = 'Erro ao carregar preço: ' + error.message;
+            return;
+        }
+        if (!data) {
+            document.getElementById('price-message').innerText = 'Nenhuma rifa ativa configurada.';
+            return;
+        }
+        const formatted = `R$ ${Number(data.preco_numero).toFixed(2).replace('.', ',')}`;
+        document.getElementById('stat-price').innerText = formatted;
+        document.getElementById('rifa-price').value = Number(data.preco_numero).toFixed(2);
+    }
+
+    async function saveRifaPrice() {
+        const input = document.getElementById('rifa-price');
+        const value = Number(input.value);
+        const message = document.getElementById('price-message');
+        if (!Number.isFinite(value) || value <= 0) {
+            message.innerText = 'Informe um preço maior que zero.';
+            return;
+        }
+        const button = document.getElementById('btn-save-price');
+        button.disabled = true;
+        try {
+            const { error } = await _supabase.rpc('alterar_preco_rifa', { p_preco: value });
+            if (error) throw error;
+            message.innerText = 'Preço atualizado com sucesso.';
+            await loadPrice();
+        } catch (error) {
+            message.innerText = 'Erro ao salvar preço: ' + error.message;
+        } finally {
+            button.disabled = false;
+        }
     }
 
     async function loadPendingOrders() {
@@ -283,13 +335,7 @@
                 <td>${order.numeros_selecionados.join(', ')}</td>
                 <td>R$ ${parseFloat(order.valor_total).toFixed(2)}</td>
                 <td><span class="badge ${statusClass}">${order.status_pagamento.toUpperCase()}</span></td>
-                <td>
-                    <button
-                        onclick="deleteOrder('${order.id}')"
-                        style="background:#dc2626; color:white; border:none; padding:6px 10px; border-radius:6px; cursor:pointer;">
-                        Excluir
-                    </button>
-                </td>
+                <td><span style="color:#777; font-size:12px;">Preservado no histórico</span></td>
             `;
             body.appendChild(tr);
         });
@@ -298,100 +344,53 @@
     async function approveOrder(orderId) {
         const order = pendingOrdersMap[orderId];
         if (!order) return;
-        if (!confirm(`Aprovar pedido de ${order.nome_comprador}?`)) return;
+        if (!confirm(`Confirma que o PIX de ${order.nome_comprador} foi conferido no extrato?`)) return;
 
         try {
-            // 1. Atualizar pedido para aprovado
-            const { error: orderError } = await _supabase.from('rifa_pedidos').update({ status_pagamento: 'aprovado' }).eq('id', orderId);
-            if (orderError) throw orderError;
+            const { error } = await _supabase.rpc('aprovar_pedido', {
+                p_pedido_id: orderId
+            });
+            if (error) throw error;
 
-            // 2. Marcar números como comprados
-            for (const num of order.numeros_selecionados) {
-                await _supabase.from('rifa_numeros').update({ 
-                    status_numero: 'comprado',
-                    nome_comprador: order.nome_comprador,
-                    whats_comprador: order.whats_comprador
-                }).eq('numero_rifa', num);
-            }
-
-            // 3. Enviar e-mail de confirmação via Vercel
-            try {
-                await fetch('/api/send-email', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        to: order.email_comprador,
-                        subject: "✅ Pagamento Confirmado - Rifa TDS",
-                        html: `
-                            <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px;">
-                                <h2 style="color: #ef4444; text-align: center;">PAGAMENTO CONFIRMADO! ✅</h2>
-                                <p>Olá <strong>${order.nome_comprador}</strong>,</p>
-                                <p>Ótima notícia! Seu pagamento foi verificado e confirmado pela nossa equipe. Você já está participando do sorteio!</p>
-                                <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                                    <p><strong>Seus Números da Sorte:</strong> <span style="font-size: 22px; color: #ef4444; font-weight: bold; letter-spacing: 2px;">${order.numeros_selecionados.join(', ')}</span></p>
-                                    <p><strong>Valor Pago:</strong> R$ ${parseFloat(order.valor_total).toFixed(2).replace('.', ',')}</p>
-                                </div>
-                                <p>Guarde bem seus números! O sorteio será anunciado em breve pelos nossos canais oficiais.</p>
-                                <p>Obrigado por apoiar o Templo do Som. Boa sorte! 🔥🎸</p>
-                                <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-                                <p style="text-align: center; font-size: 10px; color: #999;">Templo do Som - Faça parte disso.</p>
-                            </div>
-                        `
-                    })
-                });
-                console.log("✅ E-mail de confirmação enviado via Vercel");
-            } catch (emailErr) {
-                console.error("Erro ao enviar e-mail via Vercel:", emailErr);
-            }
-
-            alert("✅ Pedido aprovado e e-mail enviado!");
-            loadAllData();
-        } catch (e) { alert("Erro ao aprovar: " + e.message); }
+            alert('Pedido aprovado e números confirmados.');
+            await loadAllData();
+        } catch (e) {
+            alert('Erro ao aprovar: ' + e.message);
+        }
     }
 
-   async function cancelOrder(orderId) {
-    if (!confirm("Deseja realmente cancelar este pedido?")) return;
-
-    const order = pendingOrdersMap[orderId];
-
-    if (!order) {
-        alert("Pedido não encontrado.");
-        return;
-    }
-
-    try {
-        // 1. Cancela o pedido
-        const { error: orderError } = await _supabase
-            .from('rifa_pedidos')
-            .update({ status_pagamento: 'cancelado' })
-            .eq('id', orderId);
-
-        if (orderError) throw orderError;
-
-        // 2. Libera cada número desse pedido
-        for (const numero of order.numeros_selecionados) {
-            const { error: numberError } = await _supabase
-                .from('rifa_numeros')
-                .update({
-                    status_numero: 'livre',
-                    nome_comprador: null,
-                    whats_comprador: null,
-                    reservado_ate: null
-                })
-                .eq('numero_rifa', numero)
-                .eq('status_numero', 'reservado');
-
-            if (numberError) throw numberError;
+    async function cancelOrder(orderId) {
+        const order = pendingOrdersMap[orderId];
+        if (!order) {
+            alert('Pedido não encontrado.');
+            return;
         }
 
-        alert("✅ Pedido cancelado e números liberados!");
-        loadAllData();
+        const valor = prompt('Informe o valor estornado. Deixe vazio se não houve pagamento:');
+        if (valor === null) return;
+        const observacao = prompt('Informe a referência ou observação do estorno:');
+        if (observacao === null) return;
 
-    } catch (e) {
-        console.error(e);
-        alert("Erro ao cancelar e liberar os números: " + e.message);
+        const parsedValue = valor.trim() === '' ? null : Number(valor.replace(',', '.'));
+        if (parsedValue !== null && (!Number.isFinite(parsedValue) || parsedValue < 0)) {
+            alert('Valor de estorno inválido.');
+            return;
+        }
+
+        try {
+            const { error } = await _supabase.rpc('cancelar_pedido', {
+                p_pedido_id: orderId,
+                p_valor_estorno: parsedValue,
+                p_observacao: observacao
+            });
+            if (error) throw error;
+
+            alert('Pedido cancelado e estorno registrado.');
+            await loadAllData();
+        } catch (e) {
+            alert('Erro ao cancelar: ' + e.message);
+        }
     }
-}
 
     async function loadPrizes() {
         const { data, error } = await _supabase.from('rifa_premios').select('*').order('created_at', { ascending: false });
